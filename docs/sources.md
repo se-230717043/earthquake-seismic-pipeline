@@ -29,4 +29,3 @@
 - **Update Frequency:** Static topographical elevation mapping based on DEM datasets.
 - **Entity Description:** Maps input latitude and longitude coordinates to precise surface elevation above sea level in meters.
 - **Known Limitations / Issues:** Resolution is tied to 90m/30m digital elevation models; oceanic coordinates return 0 or null elevation values.
--
