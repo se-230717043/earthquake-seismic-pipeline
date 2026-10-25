@@ -29,7 +29,7 @@ The database is built using SQLite with `STRICT` table mode enabled to enforce e
 
 ### Entity-Relationship (ER) Diagram
 ```mermaid
-erdiagram
+erDiagram
     elevation_locations ||--o{ earthquake_events : "has"
     elevation_locations {
         int location_key PK
