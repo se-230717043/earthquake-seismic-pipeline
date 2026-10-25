@@ -20,3 +20,37 @@ earthquake-seismic-pipeline/
 ├── .gitignore           # Git ignore rules for sensitive files and raw data
 ├── README.md            # Project overview and instructions
 └── requirements.txt     # Required Python libraries
+---
+
+## Milestone 2: Data Storage & Schema Design
+
+### Database Architecture
+The database is built using SQLite with `STRICT` table mode enabled to enforce explicit data typing. Primary keys, foreign keys, and unique constraints are strictly configured.
+
+### Entity-Relationship (ER) Diagram
+```mermaid
+erdiagram
+    elevation_locations ||--o{ earthquake_events : "has"
+    elevation_locations {
+        int location_key PK
+        text source_id UK
+        real latitude
+        real longitude
+        real elevation
+        text retrieved_at
+    }
+    earthquake_events {
+        text event_id PK
+        text location_source_id FK
+        real magnitude
+        text place
+        text event_time
+        text retrieved_at PK
+    }
+    quarantine {
+        int quarantine_id PK
+        text source_name
+        text raw_record
+        text reason
+        text quarantined_at
+    }
