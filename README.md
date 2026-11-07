@@ -70,3 +70,16 @@ erDiagram
         text quarantined_at
     }
 ```
+---
+
+## Milestone 3: Data Cleaning & Quality Report
+
+### Data Quality Summary
+The data cleaning layer builds a transparent, non-destructive audit trail next to the raw M2 database tables. Every record maintains raw values alongside cleaned values and explicit flag indicators. Full profiling and investigation details are documented in [docs/cleaning_report.md](docs/cleaning_report.md).
+
+### Execution Instructions
+To build and validate the entire pipeline from scratch:
+```cmd
+python src/load.py
+python src/clean.py
+python src/validate.py
