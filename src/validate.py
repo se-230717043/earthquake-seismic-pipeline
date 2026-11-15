@@ -3,27 +3,36 @@ import sqlite3
 import os
 import sys
 
-DB_PATH = os.path.join("data", "earthquake.db")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "data", "earthquake.db")
 
-def run_validations():
-    conn = sqlite3.connect(DB_PATH)
+def run_validations(db_path=DB_PATH):
+    conn = sqlite3.connect(db_path)
     stop_failed = False
 
     # Check 1: Row count equality (STOP)
     raw_eq_cnt = conn.execute("SELECT COUNT(*) FROM earthquake_events").fetchone()[0]
     clean_eq_cnt = conn.execute("SELECT COUNT(*) FROM earthquake_events_clean").fetchone()[0]
-    if raw_eq_cnt == clean_eq_cnt:
-        print(f"PASS earthquake_events_clean row count equals raw ({clean_eq_cnt}={raw_eq_cnt})")
+    distinct_raw_eq_cnt = conn.execute("SELECT COUNT(DISTINCT event_id) FROM earthquake_events").fetchone()[0]
+    if distinct_raw_eq_cnt == clean_eq_cnt and clean_eq_cnt <= raw_eq_cnt:
+        print(f"PASS cleaned events equal distinct raw events ({clean_eq_cnt}; raw snapshots={raw_eq_cnt})")
     else:
-        print(f"STOP earthquake_events_clean row count mismatch ({clean_eq_cnt} != {raw_eq_cnt})")
+        print(f"STOP cleaned event count mismatch ({clean_eq_cnt} != {distinct_raw_eq_cnt} distinct raw)")
         stop_failed = True
 
-    # Check 2: No negative magnitude in cleaned column (STOP)
-    neg_cnt = conn.execute("SELECT COUNT(*) FROM earthquake_events_clean WHERE magnitude < 0").fetchone()[0]
-    if neg_cnt == 0:
-        print("PASS no negative cleaned magnitude (0 negative)")
+    # Check 1b: M4 minimum distinct valid event count (STOP)
+    if clean_eq_cnt >= 1000:
+        print(f"PASS M4 minimum event count satisfied ({clean_eq_cnt} >= 1000)")
     else:
-        print(f"STOP found {neg_cnt} negative magnitudes in cleaned layer")
+        print(f"STOP M4 minimum event count not satisfied ({clean_eq_cnt} < 1000)")
+        stop_failed = True
+
+    # Check 2: No below-contract magnitude in cleaned column (STOP)
+    below_scope_cnt = conn.execute("SELECT COUNT(*) FROM earthquake_events_clean WHERE magnitude < 2.5").fetchone()[0]
+    if below_scope_cnt == 0:
+        print("PASS cleaned magnitudes satisfy M2.5 collection scope")
+    else:
+        print(f"STOP found {below_scope_cnt} magnitudes below M2.5 in cleaned layer")
         stop_failed = True
 
     # Check 3: Foreign Key Integrity (STOP)
@@ -50,7 +59,20 @@ def run_validations():
         print(f"STOP found {invalid_coords} out of bounds coordinates")
         stop_failed = True
 
-    # Check 6: Check for unusual extreme events (WARN)
+    # Check 6: Event-to-location mapping retains coordinate identity (STOP)
+    mapping = conn.execute("""
+        SELECT COUNT(DISTINCT e.location_source_id),
+               COUNT(DISTINCT l.latitude || ',' || l.longitude)
+        FROM earthquake_events_clean AS e
+        JOIN elevation_locations_clean AS l ON e.location_source_id = l.source_id
+    """).fetchone()
+    if clean_eq_cnt <= 1 or (mapping[0] > 1 and mapping[0] == mapping[1]):
+        print(f"PASS event locations are coordinate-specific ({mapping[0]} distinct locations)")
+    else:
+        print(f"STOP event-to-location mapping collapsed or inconsistent ({mapping})")
+        stop_failed = True
+
+    # Check 7: Check for unusual extreme events (WARN)
     unusual_cnt = conn.execute("SELECT COUNT(*) FROM earthquake_events_clean WHERE magnitude_flag = 'unusual_high'").fetchone()[0]
     if unusual_cnt > 0:
         print(f"WARN unusual high magnitude events flagged: {unusual_cnt} events >= 8.0")

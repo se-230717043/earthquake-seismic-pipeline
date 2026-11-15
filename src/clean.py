@@ -4,15 +4,16 @@ import os
 import csv
 from clean_config import (
     LAT_MIN, LAT_MAX, LON_MIN, LON_MAX,
-    MAG_MIN_VALID, MAG_UNUSUAL_HIGH, ELEVATION_SENTINEL
+    MAG_COLLECTION_MIN, MAG_UNUSUAL_HIGH, ELEVATION_SENTINEL
 )
 
-DB_PATH = os.path.join("data", "earthquake.db")
-SCHEMA_PATH = os.path.join("sql", "clean_schema.sql")
-MAPPINGS_PATH = os.path.join("data", "mappings", "location_mapping.csv")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "data", "earthquake.db")
+SCHEMA_PATH = os.path.join(BASE_DIR, "sql", "clean_schema.sql")
+MAPPINGS_PATH = os.path.join(BASE_DIR, "data", "mappings", "location_mapping.csv")
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+def get_connection(db_path=DB_PATH):
+    conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
@@ -31,8 +32,8 @@ def load_mappings(conn):
             """, rows)
             print(f"mappings: location_mapping loaded {len(rows)} rows")
 
-def clean_data():
-    conn = get_connection()
+def clean_data(db_path=DB_PATH):
+    conn = get_connection(db_path)
     try:
         with conn:
             init_clean_schema(conn)
@@ -77,8 +78,20 @@ def clean_data():
                 """, (l_key, s_id, s_id, lat, lat, lon, lon, coord_flag, elev, elev_clean, elev_flag, ret_at))
 
             # 2. Clean earthquake_events
-            raw_events = conn.execute("SELECT * FROM earthquake_events").fetchall()
-            flags_eq = {"ok": 0, "invalid_negative": 0, "unusual_high": 0, "missing_not_reported": 0}
+            raw_event_count = conn.execute("SELECT COUNT(*) FROM earthquake_events").fetchone()[0]
+            raw_events = conn.execute("""
+                SELECT event_id, location_source_id, magnitude, place, event_time, retrieved_at
+                FROM (
+                    SELECT e.*,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY event_id
+                               ORDER BY retrieved_at DESC
+                           ) AS snapshot_rank
+                    FROM earthquake_events AS e
+                )
+                WHERE snapshot_rank = 1
+            """).fetchall()
+            flags_eq = {"ok": 0, "outside_scope": 0, "unusual_high": 0, "missing_not_reported": 0}
 
             for row in raw_events:
                 e_id, loc_s_id, mag, place, e_time, ret_at = row
@@ -88,9 +101,9 @@ def clean_data():
                 if mag is None:
                     mag_flag = "missing_not_reported"
                     mag_clean = None
-                elif mag < MAG_MIN_VALID:
+                elif mag < MAG_COLLECTION_MIN:
                     mag_clean = None
-                    mag_flag = "invalid_negative"
+                    mag_flag = "outside_scope"
                 elif mag >= MAG_UNUSUAL_HIGH:
                     mag_flag = "unusual_high"
 
@@ -114,7 +127,7 @@ def clean_data():
 
             print(f"elevation_locations_clean: {len(raw_locs)} rows (raw: {len(raw_locs)})")
             print(f"  elevation flags: {flags_loc}")
-            print(f"earthquake_events_clean: {len(raw_events)} rows (raw: {len(raw_events)})")
+            print(f"earthquake_events_clean: {len(raw_events)} unique events (raw snapshots: {raw_event_count})")
             print(f"  magnitude flags: {flags_eq}")
             print("STATUS: COMPLETE")
 

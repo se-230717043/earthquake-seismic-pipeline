@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS earthquake_events_clean (
     location_source_id_flag TEXT NOT NULL CHECK (location_source_id_flag IN ('ok', 'missing_not_reported', 'unresolved_fk')),
     magnitude_raw REAL,
     magnitude REAL,
-    magnitude_flag TEXT NOT NULL CHECK (magnitude_flag IN ('ok', 'missing_not_reported', 'invalid_negative', 'unusual_high')),
+    magnitude_flag TEXT NOT NULL CHECK (magnitude_flag IN ('ok', 'missing_not_reported', 'outside_scope', 'unusual_high')),
     place_raw TEXT,
     place TEXT,
     place_flag TEXT NOT NULL CHECK (place_flag IN ('ok', 'missing_not_reported', 'standardized_text')),

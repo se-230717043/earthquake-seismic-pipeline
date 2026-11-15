@@ -9,8 +9,14 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "data", "earthquake.db")
 
 def check_duplicate_natural_key(con):
+    source_id, latitude, longitude = con.execute(
+        "SELECT source_id, latitude, longitude FROM elevation_locations LIMIT 1"
+    ).fetchone()
     try:
-        con.execute("INSERT INTO elevation_locations (source_id, latitude, longitude, retrieved_at) VALUES ('loc_izmir_38.42_27.14', 38.42, 27.14, '2026-10-24T00:00:00Z');")
+        con.execute(
+            "INSERT INTO elevation_locations (source_id, latitude, longitude, retrieved_at) VALUES (?, ?, ?, ?)",
+            (source_id, latitude, longitude, "2026-10-24T00:00:00Z"),
+        )
         return False
     except sqlite3.IntegrityError:
         return True
@@ -23,22 +29,33 @@ def check_orphan_event(con):
         return True
 
 def check_null_key(con):
+    source_id = con.execute("SELECT source_id FROM elevation_locations LIMIT 1").fetchone()[0]
     try:
-        con.execute("INSERT INTO earthquake_events (event_id, location_source_id, magnitude, event_time, retrieved_at) VALUES (NULL, 'loc_izmir_38.42_27.14', 5.0, '2026-10-24T00:00:00Z', '2026-10-24T00:00:00Z');")
+        con.execute("INSERT INTO earthquake_events (event_id, location_source_id, magnitude, event_time, retrieved_at) VALUES (NULL, ?, 5.0, '2026-10-24T00:00:00Z', '2026-10-24T00:00:00Z');", (source_id,))
         return False
     except sqlite3.IntegrityError:
         return True
 
 def check_wrong_type(con):
+    source_id = con.execute("SELECT source_id FROM elevation_locations LIMIT 1").fetchone()[0]
     try:
-        con.execute("INSERT INTO earthquake_events (event_id, location_source_id, magnitude, event_time, retrieved_at) VALUES ('test_type', 'loc_izmir_38.42_27.14', 'INVALID_MAGNITUDE', '2026-10-24T00:00:00Z', '2026-10-24T00:00:00Z');")
+        con.execute("INSERT INTO earthquake_events (event_id, location_source_id, magnitude, event_time, retrieved_at) VALUES ('test_type', ?, 'INVALID_MAGNITUDE', '2026-10-24T00:00:00Z', '2026-10-24T00:00:00Z');", (source_id,))
         return False
     except (sqlite3.IntegrityError, sqlite3.OperationalError):
         return True
 
 def get_row_counts(con):
     tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';").fetchall()]
-    return {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in tables}
+    count_queries = {
+        "elevation_locations": "SELECT COUNT(*) FROM elevation_locations",
+        "earthquake_events": "SELECT COUNT(*) FROM earthquake_events",
+        "quarantine": "SELECT COUNT(*) FROM quarantine",
+        "elevation_locations_clean": "SELECT COUNT(*) FROM elevation_locations_clean",
+        "earthquake_events_clean": "SELECT COUNT(*) FROM earthquake_events_clean",
+        "quarantine_clean": "SELECT COUNT(*) FROM quarantine_clean",
+        "location_mapping": "SELECT COUNT(*) FROM location_mapping",
+    }
+    return {table: con.execute(count_queries[table]).fetchone()[0] for table in tables}
 
 def run_checks():
     if not os.path.exists(DB_PATH):

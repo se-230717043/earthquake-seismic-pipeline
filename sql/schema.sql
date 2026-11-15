@@ -26,5 +26,6 @@ CREATE TABLE IF NOT EXISTS quarantine (
     source_name TEXT NOT NULL,
     raw_record TEXT NOT NULL,
     reason TEXT NOT NULL,
-    quarantined_at TEXT NOT NULL
+    quarantined_at TEXT NOT NULL,
+    UNIQUE (source_name, raw_record, reason, quarantined_at)
 ) STRICT;

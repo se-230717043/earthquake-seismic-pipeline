@@ -1,60 +1,49 @@
 # Cleaning Report - Earthquake & Seismic Activity Tracking Pipeline
 
 ## 1. Summary
-This report documents the data quality profiling, issue investigation, and cleaning decisions implemented for Milestone 3. The cleaning pipeline transforms raw database tables into a structured, validated, clean layer using SQLite STRICT mode without mutating original M2 tables. Major checks focused on coordinate validity, negative magnitude values, elevation sentinel detection, and text standardisation. A total of 200 earthquake events and elevation records were verified with zero structural data loss.
 
-## 2. Profile Highlights
-Data profiling was conducted using SQLite analytical queries and documented in `notebooks/m3_profile.ipynb`. Key statistics across primary tables:
-- **`earthquake_events`**: 200 total rows. Magnitudes range from valid non-negative values up to realistic seismic limits.
-- **`elevation_locations`**: Valid coordinates spanning global reporting stations with no out-of-bound coordinates.
+The M3 clean layer is non-destructive: raw M2 tables remain intact, while cleaned tables retain raw values, cleaned values, and explicit flags. For the corrected M4 snapshot, 1,500 USGS events and 1,499 coordinate-specific Open-Meteo elevations were loaded. The clean layer contains 1,500 unique events; two genuine events share one coordinate, and no critical record was quarantined.
 
-Link to notebook: [notebooks/m3_profile.ipynb](../notebooks/m3_profile.ipynb)
+## 2. M4 correction to the M3 pipeline
 
-## 3. Issues Register
+Exploration confirmed a serious prior defect: `src/load.py` assigned every earthquake to `loc_izmir_38.42_27.14`, regardless of the event geometry. This made the earlier one-location elevation analysis invalid. The correction:
 
-| ID | Family | Table.column | What | Where / when / how many | Evidence | Cause | Decision | Flag | Investigated by |
-|---|---|---|---|---|---|---|---|---|---|
-| 1-01 | Invalid | earthquake_events.magnitude | Negative magnitude values | None found (0 rows) | SQL query `WHERE magnitude < 0` returned 0 | Confirmed: clean API feed | Kept as NULL if found | invalid_negative | Aysima Tatlı |
-| 1-02 | Invalid | elevation_locations.elevation | Sentinel values (-999) | None found (0 rows) | SQL query `WHERE elevation = -999` returned 0 | Confirmed: complete response | Converted sentinel to NULL | invalid_sentinel | Aysima Tatlı |
-| 1-03 | Text | earthquake_events.place | Leading/trailing whitespace | Checked all records | `place != TRIM(place)` | Confirmed: string formatting | Trimmed whitespace | standardized_text | Aysima Tatlı |
-| 1-04 | Unusual | earthquake_events.magnitude | Extreme events (mag >= 8.0) | None found in current batch | SQL check `WHERE magnitude >= 8.0` | Confirmed: genuine major events | Preserved & flagged | unusual_high | Aysima Tatlı |
+- derives a deterministic source ID from each event latitude/longitude at five decimal places;
+- retains each USGS event's actual coordinates;
+- requests Open-Meteo elevation for every unique event coordinate in bounded batches;
+- stores source endpoint, parameters, retrieval timestamp, and raw responses;
+- upserts locations and events idempotently;
+- deduplicates repeated retrieval snapshots by event ID in the clean layer, keeping the latest;
+- validates that coordinate IDs and coordinate pairs have a one-to-one count; and
+- adds `tests/test_location_mapping.py` as a regression test.
 
-### Checked and not found
-| Family | Check | Result |
-|---|---|---|
-| Missing values | Null checks across mandatory columns | 0 unexpected NULLs |
-| Invalid values | Coordinate bounds (-90 to 90 lat, -180 to 180 lon) | All coordinates valid |
+## 3. Profile highlights
 
-## 4. Missing Values
-No substantial unexpected missing-value patterns were detected in the raw ingest. Mandatory fields (`event_id`, `latitude`, `longitude`, `event_time`) had complete coverage. Any future missing magnitude values are handled via `missing_not_reported` flags without data deletion.
+| Measure | Result |
+|---|---:|
+| Raw event snapshots | 1,500 |
+| Distinct raw event IDs | 1,500 |
+| Clean unique events | 1,500 |
+| Coordinate-specific locations | 1,499 |
+| Quarantined records | 0 |
+| Magnitude range | 2.5-7.0 |
+| Elevation range | -32-5,835 m |
 
-## 5. Flags and Rules
+## 4. Issues register
 
-| Order | Flag | Meaning | Rule | Cleaned value | Count |
-|---|---|---|---|---|---|
-| 1 | invalid_negative | Seismic magnitude < 0 | `magnitude < 0` | NULL | 0 |
-| 2 | unusual_high | Extreme magnitude >= 8.0 | `magnitude >= 8.0` | Unchanged | 0 |
-| 3 | invalid_sentinel | Elevation sentinel code | `elevation = -999.0` | NULL | 0 |
-| 4 | invalid_out_of_bounds | Coordinate out of valid range | `lat NOT BETWEEN -90 AND 90` | Unchanged | 0 |
-| 5 | standardized_text | Whitespace trimmed from place | `place != TRIM(place)` | Trimmed string | 0 |
+| ID | Family | Table/column | What | Count | Decision | Flag | Investigated by |
+|---|---|---|---:|---:|---|---|---|
+| 1-01 | Scope | earthquake_events.magnitude | Below the project's M2.5 collection threshold | 0 | Convert to NULL if encountered; negative magnitudes are not inherently unphysical | outside_scope | Aysima Tatlı |
+| 1-02 | Invalid | elevation_locations.elevation | Sentinel -999 | 0 | Convert to NULL if encountered | invalid_sentinel | Aysima Tatlı |
+| 1-03 | Text | earthquake_events.place | Surrounding whitespace | 0 | Trim while retaining raw value | standardized_text | Aysima Tatlı |
+| 1-04 | Unusual | earthquake_events.magnitude | Magnitude >=8.0 | 0 | Retain valid event and flag | unusual_high | Aysima Tatlı |
+| 1-05 | Identity | earthquake_events.location_source_id | All events mapped to İzmir | Prior pipeline affected all rows | Replace with coordinate-derived ID and matched elevation; regression test | corrected in loader | M4 assisted review; team confirmation required |
+| 1-06 | Duplicate | earthquake_events.event_id | Event can recur in multiple retrieval snapshots | 0 in current snapshot | Latest snapshot retained in clean layer | deduplicated by event ID | M4 assisted review; team confirmation required |
 
-### Constants
-- `MAG_MIN_VALID = 0.0`: Physical constraint; seismic magnitudes on the Richter scale cannot be negative.
-- `MAG_UNUSUAL_HIGH = 8.0`: Robust statistical boundary for major seismic anomalies.
-- `ELEVATION_SENTINEL = -999.0`: Standard API missing value indicator.
+## 5. Flag results and validation
 
-## 6. Mapping and Identity Decisions
-Mapping files stored in `data/mappings/location_mapping.csv` define canonical naming standards for geographic entity resolution. 
-- Loaded 2 mapping rules for state code trimming and country standardisation.
-- All decisions logged with author (`Aysima Tatlı`), timestamp, and explicit rationale.
+All 1,500 cleaned magnitudes are `ok`; all 1,499 elevation and coordinate flags are `ok`. The inclusive reporting filter `ok + unusual_high` is used because unusual high values are scientifically valid. Validation passes for distinct-event counts, the M2.5 collection threshold, foreign keys, usable share, coordinate bounds, coordinate-specific mapping, and unusual-event reporting. M2 constraint, idempotence, and atomicity checks also pass.
 
-## 7. Counts and Validation
+## 6. Provenance
 
-### `src/clean.py` Output:
-```text
-mappings: location_mapping loaded 2 rows
-elevation_locations_clean: 1 rows (raw: 1)
-  elevation flags: {'ok': 1, 'missing_not_reported': 0, 'invalid_sentinel': 0, 'invalid_out_of_bounds': 0}
-earthquake_events_clean: 200 rows (raw: 200)
-  magnitude flags: {'ok': 200, 'invalid_negative': 0, 'unusual_high': 0, 'missing_not_reported': 0}
-STATUS: COMPLETES
+The corrected data were retrieved at **2026-11-15 16:16:20 UTC**. Geography remains global and the threshold remains M2.5. Because the original M1 request encoded no fixed start/end dates, meeting the M4 minimum required an explicit extension from `limit=100` to `limit=1500`, ordered by time; the resulting event period is 2026-10-22 08:34:19 through 2026-11-15 15:52:42 UTC. Open-Meteo returned elevations for all 1,499 unique coordinates in paced batches with retry/backoff. The historical 200-row M3 dataset remains unrecoverable because its moving-window raw files were absent.

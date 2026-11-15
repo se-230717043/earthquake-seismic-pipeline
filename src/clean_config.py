@@ -10,7 +10,9 @@ LON_MIN = -180.0
 LON_MAX = 180.0
 
 # Seismic Magnitude Thresholds
-MAG_MIN_VALID = 0.0   # Seismic magnitudes cannot be negative
+# Negative magnitudes can be scientifically valid. Values below 2.5 are out of
+# scope here because the project's USGS collection contract is minmagnitude=2.5.
+MAG_COLLECTION_MIN = 2.5
 MAG_UNUSUAL_HIGH = 8.0 # Extreme seismic event threshold (kept, flagged)
 
 # Elevation Sentinel Values
